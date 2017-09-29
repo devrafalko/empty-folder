@@ -1,6 +1,6 @@
 {
   "name": "empty-folder",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Clears the contents of the specified directory with all its subfolders and subfiles.",
   "main": "index.js",
   "dependencies": {
