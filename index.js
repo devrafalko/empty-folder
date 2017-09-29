@@ -1,83 +1,104 @@
-/* global Function, Promise */
+/* global Function*/
 const path = require('path');
 const fs = require('fs');
 const type = require('of-type');
 const args = require('typeof-arguments');
-const list = require('list-contents');
-module.exports = function(root,callback){
-  var isCallbackDefined = type(callback,Function);
-  if(!args(arguments,[String,[Function,undefined]],(o)=>{
-    var err = new TypeError(o.message);
-    returnError(err);
-  })) return;
-  const absRootPath = path.resolve(root);
-  fs.stat(absRootPath,(err,stats)=>{
-    var exists = type(err,null);
-    var isDir = type(stats,'Stats')&&stats.isDirectory();
-    if(exists&&isDir) listContents(absRootPath);
-    if(exists&&!isDir){
-      returnError(new Error(`The item of the path '${absRootPath}' is not a directory.`));
-      return;
+const listContents = require('list-contents');
+const moveOn = require('move-on');
+
+module.exports = function(root,remove,callback){
+  const functionList = [
+    validateArguments,
+    setUserContext,
+    validateRoot,
+    getChildrenPaths,
+    removeFiles,
+    removeFolders
+  ];
+  const userContext = {
+    args:arguments,
+    returned:{
+      error:null,
+      removed:[],
+      failed:[]
     }
-    if(!exists){
-      returnError(new Error(`The directory of the path '${absRootPath}' does not exist.`));
-      return;
-    }
-  });
-  function listContents(absRootPath){
-    list(absRootPath,(o)=>{
-      if(o.error){
-        returnError(new Error(`Could not get the access to the contents of the '${absRootPath}' directory.`));
-        return;
-      } else {
-        o.dirs.sort((a,b)=>b.length-a.length);
-        var filePromises = [];
-        var dirPromises = [];
-        for(let i in o.files){
-          let absFile = path.resolve(absRootPath,o.files[i]);
-          let prms = new Promise((resolve,reject)=>{
-            fs.unlink(absFile,(err)=>{
-              if(err) reject(`Could not remove '${absFile}' file.`);
-              if(!err) resolve();
-            });
-          });
-          filePromises.push(prms);
-        }
-        for(let i in o.dirs){
-          let absDir = path.resolve(absRootPath,o.dirs[i]);
-          let prms = function(){
-            return new Promise((resolve,reject)=>{
-              fs.rmdir(absDir, (err)=>{
-                if(err) reject(`Could not remove '${absDir}' folder.`);
-                if(!err) resolve();
-              });
-            });
-          };
-          dirPromises.push(prms);
-        }
-        Promise.all(filePromises).then(()=> {
-          var chain;
-          for(var i in dirPromises){
-            if(chain) chain = chain.then(dirPromises[i]);
-            if(!chain) chain = dirPromises[i]();
-          }
-          if(chain){
-            chain.then(()=>{
-              if(isCallbackDefined) callback(null);
-            }).catch((err)=>{
-              returnError(new Error(err));
-            });
-          } else {
-            if(isCallbackDefined) callback(null);
-          }
-        }).catch((err)=>{
-          returnError(new Error(err));
-        });
-      }
+  };
+  
+  moveOn(functionList,userContext,onResolve,onReject);
+  
+  function validateArguments(resolve){
+    if(args(this.args,[String,Boolean,Function],(o)=>{
+      var err = new TypeError(o.message);
+      throw err;
+    })) resolve();
+  }
+  
+  function setUserContext(resolve){
+    this.callback = callback;
+    this.rootAbsolute = path.resolve(root);
+    this.removeRoot = remove;
+    resolve();
+  }
+  
+  function validateRoot(resolve,reject){
+    fs.stat(this.rootAbsolute,(err,stats)=>{
+      var exists = type(err,null);
+      var isDir = type(stats,'Stats')&&stats.isDirectory();
+      if(exists&&isDir) return resolve();
+      if(exists&&!isDir) return reject(new Error(`The given path "${this.rootAbsolute}" is not a directory.`));
+      if(!exists) return reject(new Error(`The given path "${this.rootAbsolute}" does not exist or is inaccessible.`));
     });
   }
-  function returnError(err){
-    if(!isCallbackDefined) throw err;
-    if(isCallbackDefined) callback(err);
+  
+  function getChildrenPaths(resolve){
+    listContents(this.rootAbsolute,(o)=>{
+      this.dirs = o.dirs.sort((a,b)=>b.length-a.length);
+      this.files = o.files;
+      for(var item of o.inaccessible){
+        this.returned.failed.push(path.resolve(this.rootAbsolute,item));
+      }
+      resolve();
+    });
   }
+  
+  function removeFiles(resolve){
+    var iter = 0;
+    if(!this.files.length) return resolve();
+    for(let file of this.files){
+      const fileAbsolute = path.resolve(this.rootAbsolute,file);
+      fs.unlink(fileAbsolute,(err)=>{
+        this.returned[err ? 'failed':'removed'].push(fileAbsolute);
+        if(++iter===this.files.length) resolve();
+      });
+    }
+  }
+  
+  function removeFolders(resolve){
+    var functionList = [];
+    var userContext = this;
+    if(this.removeRoot) this.dirs.push(this.rootAbsolute);
+    for(let folder of this.dirs){
+      functionList.push(function(resolve){
+        const folderAbsolute = path.resolve(this.rootAbsolute,folder);
+        fs.rmdir(folderAbsolute,(err)=>{
+          this.returned[err ? 'failed':'removed'].push(folderAbsolute);
+          return resolve();
+        });
+      });
+    }
+    moveOn(functionList,userContext,resolve,resolve);
+  }
+  
+  
+  function onResolve(){
+    var l = this.returned.failed.length;
+    if(l) this.returned.error = new Error(`The ${l} item${l>1?'s':''} could not be removed.`);
+    this.callback(this.returned);
+  }
+  
+  function onReject(c,err){
+    this.returned.error = err;
+    this.callback(this.returned);
+  }
+  
 };
