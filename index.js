@@ -1,7 +1,5 @@
-/* global Function*/
 const path = require('path');
 const fs = require('fs');
-const type = require('of-type');
 const args = require('typeof-arguments');
 const listContents = require('list-contents');
 const moveOn = require('move-on');
@@ -42,8 +40,8 @@ module.exports = function(root,remove,callback){
   
   function validateRoot(resolve,reject){
     fs.stat(this.rootAbsolute,(err,stats)=>{
-      var exists = type(err,null);
-      var isDir = type(stats,'Stats')&&stats.isDirectory();
+      var exists = err === null;
+      var isDir = stats instanceof fs.Stats && stats.isDirectory();
       if(exists&&isDir) return resolve();
       if(exists&&!isDir) return reject(new Error(`The given path "${this.rootAbsolute}" is not a directory.`));
       if(!exists) return reject(new Error(`The given path "${this.rootAbsolute}" does not exist or is inaccessible.`));

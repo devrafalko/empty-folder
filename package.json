@@ -6,7 +6,6 @@
   "dependencies": {
     "list-contents": "^4.0.1",
     "move-on": "^1.0.0",
-    "of-type": "^2.1.0",
     "typeof-arguments": "^3.1.0"
   },
   "devDependencies": {},
